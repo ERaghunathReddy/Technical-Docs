@@ -1,0 +1,224 @@
+ls -lrth | grep tail -100 | head --> take the first archive number
+To display Postgres Archive logs: pg_archivecleanup -n /var/lib/pgsql/9.6/data/pg_xlog 0000000100009F93000000ED
+To delete archives : pg_archivecleanup -d /var/lib/pgsql/9.6/data/pg_xlog 0000000100009F93000000ED
+
+To drop repliction slots: select pg_drop_replication_slot('dbz_test');
+
+Install postgres:
+yum install *postgres*14*14.10* --enablerepo=* --nogpg -y
+
+cd $PGDATA
+/usr/pgsql-14/bin/initdb .
+
+create database:
+create database <db_name>;
+
+change the owner of the database -
+alter databse <db-name> owner to <new username>;
+
+To restore database from backup -
+create database <db_name>;
+gunzip -c /home/rms/milestone.20191114.gz | psql  milestone 
+------------------------------------------------------------------
+gunzip -c /home/rms/sequoia/sequoia.20200210.gz | psql sequoia
+
+wget -O - http://rpidalyls009.mpfyieldstar.com/Backup/continental/database/continental.20200210.gz | gunzip -c | psql continental; 
+
+http://rpidalyls027.mpfyieldstar.com/Backup/paredimcommunities/database/
+Take DB meta data backup:
+pg_dump --schema-only -U <your_username> -d <your_database> > metadata_backup.sql
+
+Restore:
+psql -d <DB-Name> -f metadata_backup.sql
+
+Take the backup of DB -
+pg_dump -U rms -d amenitycategorization > /dbatemp/raghu/rcsypodbpgr002/amenitycategorization_24APR2020.sql &
+
+To restore the DB -
+psql -d amenitycategorization -U rms -f /dbatemp/raghu/rcsypodbpgr002/amenitycategorization_24APR2020.sql 
+
+To Rename DB name -
+ALTER DATABASE <db_name> RENAME TO <New_dbname>;
+----------------------------------------------------
+Take the backup of globals:
+pg_dumpall -h localhost -p 5432 -U postgres --globals-only > /dbatemp/rcsrpfdbpgr101/useraccts.sql
+---------------------------------------------------------------
+Restore globals on target server:
+psql < /path/to/useraccts.sql
+---------------------------------------------
+connect to source to take schema backup -
+pg_dump --schema=vmp  vendormarketplace > /dbatemp/vmp_29APR2020.sql
+
+connect to target to restore - 
+psql -d vendormarketplace -h localhost -U postgres < /dbatemp/vmp_29APR2020.sql
+----------------------------------------------------------------------------------
+Take directory structure backup in postgres:
+pg_dump -U postgres -h localhost -j 4 -Fd -v -f /dbatemp/rcsrpfdbpgr101/blackblue_template2/ blackblue_template2 >> /dbatemp/rcsrpfdbpgr101/rcsrpfdbpgr101_blackblue_template2_pgr_dump_${DATE}.log 
+
+restore directory structure backup on target server:
+/usr/pgsql-14/bin/pg_restore -h localhost -p 5432 -d artifactory -U postgres -j 4 --format=d -C -v /DDBackups/DVO/rcedvodbpgr102/2025-02-17_20-00_Mon_CST/artifactory >> /dbatemp/artifactory_restore.log 
+---------------------------------------------------
+Analyze a table:
+------------------
+polog=# analyze verbose tocdsstage.tableloadlog;
+INFO:  analyzing "tocdsstage.tableloadlog"
+INFO:  "tableloadlog": scanned 30000 of 3002710 pages, containing 237145 live rows and 669 dead rows; 30000 rows in sample, 23735922 estimated total rows
+ANALYZE
+
+--------------------------------------------------
+Query to see/check, if the analyze is run or not - 
+----------------------------------------------------
+select
+  schemaname,
+  relname,
+  DATE_TRUNC('minute', last_analyze) last_analyze,
+  DATE_TRUNC('minute', last_autoanalyze) last_autoanalyze
+from
+  pg_stat_all_tables
+where
+  schemaname = 'tocdsstage'
+order by
+  last_analyze desc NULLS FIRST,
+  last_autoanalyze desc NULLS FIRST;
+----------------------------------------------
+To rename schema - 
+----------------------------------------------
+connect to DB -
+\c vendormarketplace
+vendormarketplace=# ALTER SCHEMA vmp rename to vmp_old;
+---------------------------------------------------------
+Check the schema size:
+select pg_size_pretty(pg_schema_size('vmp'));
+----------------------------------------------------
+Kill the idle on particular DB -
+SELECT pg_terminate_backend(pg_stat_activity.pid)FROM pg_stat_activity
+WHERE pg_stat_activity.datname = 'aoalerts_uat'
+  AND state = 'idle'
+  AND pid <> pg_backend_pid(); 
+-----------------------------------------------------  
+check repmgr cluster status 
+su - postgres 
+repmgr -f /etc/repmgr/9.6/repmgr.conf cluster show
+
+(or) view $PGDATA/recovery.conf
+
+Replication status in PostgreSQL
+This is a small tip to view the replication status of slave postgresql servers. The simplest way to see the replication state on a master server is executing this query:
+
+select client_addr, state, sent_location, write_location,flush_location, replay_location from pg_stat_replication;
+
+This query can output can be like this:
+postgres=# select client_addr, state, sent_location,write_location, flush_location, replay_location, sync_priority from pg_stat_replication;
+ client_addr |   state   | write_location | flush_location | replay_location | sync_priority
+-------------+-----------+----------------+----------------+-----------------+---------------
+ 10.0.2.184  | streaming | AB/416D178     | AB/416D178     | AB/416D178      |             0
+(1 row)
+
+If the slave is up in hot standby mode, you can tell the time in seconds the delay of transactions applied on the slave with this query:
+select now() - pg_last_xact_replay_timestamp() AS replication_delay;
+This is a possible output:
+
+postgres=# select now() - pg_last_xact_replay_timestamp() AS replication_delay;
+ replication_delay
+-------------------
+ 00:00:08.057668
+(1 row)
+
+In a very busy database, with many writes per second, this number will remain fairly accurate. However, in a system where there are few writes, the “replication_delay” will continually grow because the last replayed transaction timestamp isn’t increasing (this is generally the same limitation as MySQL’s SHOW SLAVE STATUS output).
+-------------------------------------------------------------
+Kill idle queries running for more than 1 hour -
+select pg_terminate_backend(pid) from pg_stat_activity where state='idle' and now()-query_start > INTERVAL '60 minutes';
+----------------------------------------------------------------------
+
+Trigger Defenition -
+\df+ <trigger or function name>
+-----------------------------------
+To check DB size:
+select sum(pg_database_size(oid)) as dbsize from pg_database;
+---------------------------------------------------------------
+check no of connections in DB:
+select count(*) from pg_stat_activity;
+------------------------------------------------------------------
+Break the slave if slave is behind huge archive gap
+-------------------------------------------------------------
+To check replication slot name -
+SELECT slot_name,lpad((pg_control_checkpoint()).timeline_id::text, 8, '0') ||lpad(split_part(restart_lsn::text, '/', 1), 8, '0') || lpad(substr(split_part(restart_lsn::text, '/', 2), 1, 2), 8, '0') AS wal_file FROM pg_replication_slots; 
+
+output:
+slot_name          Wal_file
+repmgr_slot_2      0000000100001F8E00000092
+
+check the wal_keep segments - 
+show wal_keep_segments
+
+break slave -
+select pg_drop_replication_slot('repmgr_slot_2'); 
+----------------------------------------------------------
+
+Grant privielges from one schema to other:
+---------------------------------------------
+psql -h localhost -d mnp -U mnp -c  "grant select on all tables in schema mnp to mnp_read;"
+psql -h localhost -d mnp -U mnp -c "grant USAGE ON SCHEMA mnp to mnp_read;"
+
+Grant privileges to a specific table (AWS realpage-unity-prod):
+------------------------------------------------------------------
+account=> create user readonly_user with password 'TaW#FohOy$Uc9INfIch2n$PMhdDB3!Ov3!AyADxw';
+CREATE ROLE
+account=> grant select on "public"."AspNetUserClaims" to readonly_user;
+GRANT
+account=> grant select on "public"."AspNetUsers" to readonly_user;
+GRANT
+account=>
+----------------------------------------------------------------------------------
+To check sequence:
+connect to respective DB and issue below SELECT:
+select * from information_schema.sequences where sequence_name='<sequence_name>';
+----------------------------------------------------------------------------------------
+Create user and grant read-only to a specific user in a database:
+example:
+\c ysanalysis
+create user svc_sci_aidataplatform with password 'vLsZPP9BwYSaHx1';
+grant connect on database ysanalysis to "svc_sci_aidataplatform";
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO user;
+-------------------------------------------------------- 
+To connect to particular schema in database:
+\c <dbname>
+set search_path to <schema_name>;
+\dt+
+-------------------------------------------
+To check user privileges:
+SELECT *
+  FROM information_schema.role_table_grants 
+WHERE grantee = 'svc_sci_aidataplatform';
+------------------------------------------------
+To check table size order by size:
+
+\dt+
+
+(or)
+
+select table_name, pg_size_pretty(pg_total_relation_size(quote_ident(table_name))) from information_schema.tables where table_schema = 'mnp' 
+order by pg_total_relation_size(quote_ident(table_name));
+-------------------------------------------------------------------
+Take metadata backup of a DB:
+pg_dump -U postgres -h rcqmnpdbpgr106 --schema-only mnp > rcqmnpdbpgr106_mnp_metadata.sql
+
+Restore DB metadata:
+psql -U postgres -h rcqmnpdbpgr106 -d mnp3 < rcqmnpdbpgr106_mnp_metadata.sql
+--------------------------------------------------------------------------------------------
+Take backup of table:
+pg_dump -U postgres -h rcqmnpdbpgr106 -d mnp --table=country > country_backup.sql
+
+Restore table:
+psql -U mnp -h rcqmnpdbpgr106 -d mnp3 < city_backup.sql
+----------------------------------------------------------------------------------------------
+For any regular replication lags.. please do update the said tcp_keepalive parameters in primary and in all standby's. to reduce these lags even further... 
+ 
+Parameters:
+tcp_keepalives_idle - 300
+tcp_keepalives_interval - 60
+tcp_keepalives_count - 5
+ 
+since these are dynamic parameters, pg_ctl reload will reflect the conf.
+------------------------------------------------------------------------------------------------
+
