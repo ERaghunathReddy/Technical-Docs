@@ -1,1 +1,1 @@
-This is folder/repository will have all the postgres hands on guide
+This folder/repository will have all the postgres hands on guide
